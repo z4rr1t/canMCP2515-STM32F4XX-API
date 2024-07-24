@@ -1,4 +1,4 @@
-# Project Name
+# canMCP2515-STM32F4XX-API
 
 ## Description
 This project implements a CAN bus communication interface using the MCP2515 controller on an STM32 microcontroller.
