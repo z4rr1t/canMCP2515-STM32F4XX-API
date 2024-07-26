@@ -1,4 +1,4 @@
-# Project Name
+# canMCP2515-STM32F4XX-API
 
 ## Description
 This project implements a CAN bus communication interface using the MCP2515 controller on an STM32 microcontroller.
@@ -32,7 +32,7 @@ This project implements a CAN bus communication interface using the MCP2515 cont
 - Check the wiring and connections between the STM32 microcontroller and MCP2515 controller.
 
 ## Contributors
-- [Your Name](https://github.com/yourusername)
+- [z4rr1t](https://github.com/z4rr1t)
 
 ## License
 This project is licensed under the MIT License - see the LICENSE.md file for details.
