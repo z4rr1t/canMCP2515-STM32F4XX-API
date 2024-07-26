@@ -16,18 +16,18 @@
 
 // CAN Message Structure
 typedef struct {
-    uint32_t adrsValue;
-    bool isExtendedAdrs;
-    bool rtr;
-    uint8_t dataLength;
-    uint8_t data[8];
+    uint32_t id;                    // Message ID
+    bool isExtended;            // Extended address flag
+    bool rtr;                       // Remote transmission request flag
+    uint8_t length;             // Length of data
+    uint8_t data[8];                // Data array
 } CANMSG;
 
 class MCP2515 {
 public:
-    MCP2515(SPI_HandleTypeDef* hspi1, GPIO_TypeDef* csPort, uint16_t csPin);
-    void MCP2515::setHspi(SPI_HandleTypeDef& hspi);
-    bool initCAN(uint32_t baudrate);
+    MCP2515();
+    void MCP2515::init(SPI_HandleTypeDef* hspi, uint16_t csPin, GPIO_TypeDef *csPort);
+    bool initCAN();
     bool setCANBaud(uint32_t baudrate);
     bool setCANNormalMode(bool singleShot);
     bool setCANReceiveonlyMode();
@@ -37,9 +37,9 @@ public:
     uint8_t getCANRxErrCnt();
 
 private:
-    SPI_HandleTypeDef* spi;
-    GPIO_TypeDef* csPort;
-    uint16_t csPin;
+    SPI_HandleTypeDef* hspi_;
+    GPIO_TypeDef* csPort_;
+    uint16_t csPin_;
 
     void writeReg(uint8_t regno, uint8_t val);
     uint8_t readReg(uint8_t regno);

@@ -5,9 +5,6 @@
 
 SPI_HandleTypeDef hspi;
 
-#define CS_PIN GPIO_PIN_11
-#define CS_PORT GPIOA
-
 // MCP2515 Registers
 #define RXF0SIDH 0x00
 #define RXF0SIDL 0x01
@@ -103,28 +100,26 @@ SPI_HandleTypeDef hspi;
 #define RX_STATUS 0xB0
 #define BIT_MODIFY 0x05
 
-MCP2515::MCP2515(SPI_HandleTypeDef *hspi1, GPIO_TypeDef *csPort, uint16_t csPin)
+MCP2515::MCP2515() : hspi_(nullptr), csPort_(nullptr),csPin_(0)
 {
-    
-    SPI_HandleTypeDef *spi = hspi1;
-    this->csPin = csPin;
-    GPIO_InitTypeDef gpio = {0};
-    gpio.Pin = csPin;
-    gpio.Mode = GPIO_MODE_OUTPUT_PP;
-    gpio.Pull = GPIO_NOPULL;
-    gpio.Speed = GPIO_SPEED_FREQ_HIGH;
-    HAL_GPIO_Init(csPort, &gpio);
-    HAL_GPIO_WritePin(csPort, csPin, GPIO_PIN_SET);
-    }
 
-boolean MCP2515::initCAN(uint32_t baudConst)
+}
+void MCP2515::init(SPI_HandleTypeDef* hspi, uint16_t csPin, GPIO_TypeDef *csPort)
+{
+    hspi_ = hspi;
+    csPin_ = csPin;
+    csPort_ = csPort;
+
+}
+
+boolean MCP2515::initCAN()
 {
     uint8_t mode;
-    HAL_SPI_Init(spi);
-    HAL_GPIO_WritePin(csPort, csPin, GPIO_PIN_SET);
+    HAL_SPI_Init(hspi_);
+    HAL_GPIO_WritePin(csPort_, csPin_, GPIO_PIN_SET);
     uint8_t resetCmd = RESET;
-    HAL_SPI_Transmit(spi, &resetCmd, 1, HAL_MAX_DELAY);
-    HAL_GPIO_WritePin(csPort, csPin, GPIO_PIN_RESET);
+    HAL_SPI_Transmit(hspi_, &resetCmd, 1, HAL_MAX_DELAY);
+    HAL_GPIO_WritePin(csPort_, csPin_, GPIO_PIN_RESET);
     HAL_Delay(100);
 
     mode = readReg(CANSTAT) >> 5;
@@ -158,25 +153,25 @@ boolean MCP2515::setCANBaud(uint32_t baudConst)
     default:
         return false;
     }
-    HAL_GPIO_WritePin(csPort, csPin, GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(csPort_, csPin_, GPIO_PIN_RESET);
     uint8_t writeCmd = WRITE;
-    HAL_SPI_Transmit(spi, &writeCmd, 1, HAL_MAX_DELAY);
+    HAL_SPI_Transmit(hspi_, &writeCmd, 1, HAL_MAX_DELAY);
     uint8_t cnf1Cmd = CNF1;
-    HAL_SPI_Transmit(spi, &cnf1Cmd, 1, HAL_MAX_DELAY);
+    HAL_SPI_Transmit(hspi_, &cnf1Cmd, 1, HAL_MAX_DELAY);
     uint8_t cnf = brp & 0b00111111;
-    HAL_SPI_Transmit(spi, &cnf, 1, HAL_MAX_DELAY);
-    HAL_GPIO_WritePin(csPort, csPin, GPIO_PIN_SET);
+    HAL_SPI_Transmit(hspi_, &cnf, 1, HAL_MAX_DELAY);
+    HAL_GPIO_WritePin(csPort_, csPin_, GPIO_PIN_SET);
 
     // PRSEG<2:0> = 0x01, 2 time quantum for prop
     // PHSEG<2:0> = 0x06, 7 time constants to PS1 sample
     // SAM = 0, just 1 sampling
     // BTLMODE = 1, PS2 determined by CNF3
-    HAL_GPIO_WritePin(csPort, csPin, GPIO_PIN_RESET);
-    HAL_SPI_Transmit(spi, &writeCmd, 1, HAL_MAX_DELAY);
+    HAL_GPIO_WritePin(csPort_, csPin_, GPIO_PIN_RESET);
+    HAL_SPI_Transmit(hspi_, &writeCmd, 1, HAL_MAX_DELAY);
     uint8_t cnf2Cmd = CNF2;
-    HAL_SPI_Transmit(spi, &cnf2Cmd, 1, HAL_MAX_DELAY);
+    HAL_SPI_Transmit(hspi_, &cnf2Cmd, 1, HAL_MAX_DELAY);
     uint8_t phseg = 5;
-    HAL_SPI_Transmit(spi, &phseg, 1, HAL_MAX_DELAY);
+    HAL_SPI_Transmit(hspi_, &phseg, 1, HAL_MAX_DELAY);
 
     // SyncSeg + PropSeg + PS1 + PS2 = 1 + 2 + 7 + 6 = 16
     return true;
@@ -239,7 +234,7 @@ boolean MCP2515::receiveCANMessage(CANMSG *msg, unsigned long timeout)
         {
             gotMessage = true;
             break;
-        }
+        }   
     }
 
     if (gotMessage)
@@ -251,31 +246,31 @@ boolean MCP2515::receiveCANMessage(CANMSG *msg, unsigned long timeout)
         standardID |= (val << 3);
         val = readReg(RXB0SIDL);
         standardID |= (val >> 5);
-        msg->adrsValue = long(standardID);
-        msg->isExtendedAdrs = ((bitRead(val, EXIDE) == 1) ? true : false);
-        if (msg->isExtendedAdrs)
+        msg->id = long(standardID);
+        msg->isExtended = ((bitRead(val, EXIDE) == 1) ? true : false);
+        if (msg->isExtended)
         {
-            msg->adrsValue = ((msg->adrsValue << 2) | (val & 0b11));
+            msg->id = ((msg->id << 2) | (val & 0b11));
             val = readReg(RXB0EID8);
-            msg->adrsValue = (msg->adrsValue << 8) | val;
+            msg->id = (msg->id << 8) | val;
             val = readReg(RXB0EID0);
-            msg->adrsValue = (msg->adrsValue << 8) | val;
+            msg->id = (msg->id << 8) | val;
         }
-        msg->adrsValue = 0b11111111111111111111111111111 & msg->adrsValue; // mask out extra bits
+        msg->id = 0b11111111111111111111111111111 & msg->id; // mask out extra bits
         // Read data bytes
         val = readReg(RXB0DLC);
-        msg->dataLength = (val & 0xf);
-        HAL_GPIO_WritePin(csPort, csPin, GPIO_PIN_RESET);
+        msg->length = (val & 0xf);
+        HAL_GPIO_WritePin(csPort_, csPin_, GPIO_PIN_RESET);
         uint8_t readCmd = READ;
-        HAL_SPI_Transmit(spi, &readCmd, 1, HAL_MAX_DELAY);
+        HAL_SPI_Transmit(hspi_, &readCmd, 1, HAL_MAX_DELAY);
         uint8_t readFrom = RXB0D0;
-        HAL_SPI_Transmit(spi, &readFrom, 1, HAL_MAX_DELAY);
-        for (i = 0; i < msg->dataLength; i++)
+        HAL_SPI_Transmit(hspi_, &readFrom, 1, HAL_MAX_DELAY);
+        for (i = 0; i < msg->length; i++)
         {
             uint8_t data = 0;
-            msg->data[i] = HAL_SPI_Transmit(spi, &data, 1, HAL_MAX_DELAY);
+            msg->data[i] = HAL_SPI_Transmit(hspi_, &data, 1, HAL_MAX_DELAY);
         }
-        HAL_GPIO_WritePin(csPort, csPin, GPIO_PIN_SET);
+        HAL_GPIO_WritePin(csPort_, csPin_, GPIO_PIN_SET);
         // clear read interrupt
         writeRegBit(CANINTF, RX0IF, 0);
     }
@@ -289,11 +284,11 @@ boolean MCP2515::transmitCANMessage(CANMSG msg, unsigned long timeout)
     int i;
     unsigned short standardID = 0;
 
-    standardID = short(msg.adrsValue);
+    standardID = short(msg.id);
     startTime = millis();
     endTime = startTime + timeout;
     sentMessage = false;
-    if (!msg.isExtendedAdrs)
+    if (!msg.isExtended)
     {
         // Write standard ID registers
         val = standardID >> 3;
@@ -304,33 +299,33 @@ boolean MCP2515::transmitCANMessage(CANMSG msg, unsigned long timeout)
     else
     {
         // Write extended ID registers, which use the standard ID registers
-        val = msg.adrsValue >> 21;
+        val = msg.id >> 21;
         writeReg(TXB0SIDH, val);
-        val = msg.adrsValue >> 16;
+        val = msg.id >> 16;
         val = val & 0b00000011;
-        val = val | (msg.adrsValue >> 13 & 0b11100000);
+        val = val | (msg.id >> 13 & 0b11100000);
         val |= 1 << EXIDE;
         writeReg(TXB0SIDL, val);
-        val = msg.adrsValue >> 8;
+        val = msg.id >> 8;
         writeReg(TXB0EID8, val);
-        val = msg.adrsValue;
+        val = msg.id;
         writeReg(TXB0EID0, val);
     }
 
-    val = msg.dataLength & 0x0f;
+    val = msg.length & 0x0f;
     if (msg.rtr)
         bitWrite(val, TXRTR, 1);
     writeReg(TXB0DLC, val);
 
     // Message bytes
-    HAL_GPIO_WritePin(csPort, csPin, GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(csPort_, csPin_, GPIO_PIN_RESET);
     uint8_t writeCmd = WRITE;
-    HAL_SPI_Transmit(spi, &writeCmd, 1, HAL_MAX_DELAY);
+    HAL_SPI_Transmit(hspi_, &writeCmd, 1, HAL_MAX_DELAY);
     uint8_t writeTo = TXB0D0;
-    HAL_SPI_Transmit(spi, &writeTo, 1, HAL_MAX_DELAY);
-    for (i = 0; i < msg.dataLength; i++)
+    HAL_SPI_Transmit(hspi_, &writeTo, 1, HAL_MAX_DELAY);
+    for (i = 0; i < msg.length; i++)
     {
-        HAL_SPI_Transmit(spi, &msg.data[i], 1, HAL_MAX_DELAY);
+        HAL_SPI_Transmit(hspi_, &msg.data[i], 1, HAL_MAX_DELAY);
     }
     // Transmit the message
 
@@ -366,44 +361,44 @@ byte MCP2515::getCANTxErrCnt()
 void MCP2515::writeReg(byte regNo, byte val)
 {
     byte writeCmd = WRITE;
-    HAL_GPIO_WritePin(csPort, csPin, GPIO_PIN_RESET);
-    HAL_SPI_Transmit(spi, &writeCmd, 1, HAL_MAX_DELAY);
-    HAL_SPI_Transmit(spi, &regNo, 1, HAL_MAX_DELAY);
-    HAL_SPI_Transmit(spi, &val, 1, HAL_MAX_DELAY);
-    HAL_GPIO_WritePin(csPort, csPin, GPIO_PIN_SET);
+    HAL_GPIO_WritePin(csPort_, csPin_, GPIO_PIN_RESET);
+    HAL_SPI_Transmit(hspi_, &writeCmd, 1, HAL_MAX_DELAY);
+    HAL_SPI_Transmit(hspi_, &regNo, 1, HAL_MAX_DELAY);
+    HAL_SPI_Transmit(hspi_, &val, 1, HAL_MAX_DELAY);
+    HAL_GPIO_WritePin(csPort_, csPin_, GPIO_PIN_SET);
 }
 
 void MCP2515::writeRegBit(byte regNo, byte bitNo, byte val)
 {
 
     byte writeCmd = BIT_MODIFY;
-    HAL_GPIO_WritePin(csPort, csPin, GPIO_PIN_RESET);
-    HAL_SPI_Transmit(spi, &writeCmd, 1, HAL_MAX_DELAY);
-    HAL_SPI_Transmit(spi, &regNo, 1, HAL_MAX_DELAY);
+    HAL_GPIO_WritePin(csPort_, csPin_, GPIO_PIN_RESET);
+    HAL_SPI_Transmit(hspi_, &writeCmd, 1, HAL_MAX_DELAY);
+    HAL_SPI_Transmit(hspi_, &regNo, 1, HAL_MAX_DELAY);
     byte mask = 1 << bitNo;
-    HAL_SPI_Transmit(spi, &mask, 1, HAL_MAX_DELAY);
+    HAL_SPI_Transmit(hspi_, &mask, 1, HAL_MAX_DELAY);
     if (val != 0)
     {
         byte cont = 0xff;
-        HAL_SPI_Transmit(spi, &cont, 1, HAL_MAX_DELAY);
+        HAL_SPI_Transmit(hspi_, &cont, 1, HAL_MAX_DELAY);
     }
     else
     {
         byte br = 0x00;
-        HAL_SPI_Transmit(spi, &br, 1, HAL_MAX_DELAY);
+        HAL_SPI_Transmit(hspi_, &br, 1, HAL_MAX_DELAY);
     }
 }
 byte MCP2515::readReg(byte regNo)
 {
     byte val;
 
-    HAL_GPIO_WritePin(csPort, csPin, GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(csPort_, csPin_, GPIO_PIN_RESET);
     byte readCmd = READ;
-    HAL_SPI_Transmit(spi, &readCmd, 1, HAL_MAX_DELAY);
-    HAL_SPI_Transmit(spi, &regNo, 1, HAL_MAX_DELAY);
+    HAL_SPI_Transmit(hspi_, &readCmd, 1, HAL_MAX_DELAY);
+    HAL_SPI_Transmit(hspi_, &regNo, 1, HAL_MAX_DELAY);
     byte valInd = 0;
-    val = HAL_SPI_Transmit(spi, &valInd, 1, HAL_MAX_DELAY);
-    HAL_GPIO_WritePin(csPort, csPin, GPIO_PIN_SET);
+    val = HAL_SPI_Transmit(hspi_, &valInd, 1, HAL_MAX_DELAY);
+    HAL_GPIO_WritePin(csPort_, csPin_, GPIO_PIN_SET);
     
     return val;
 }
