@@ -154,7 +154,7 @@ void onMessageReceivedCAN0()
         UART_SendString(buffer);
         for (uint8_t i = 0; i < msg.length; i++)
         {
-            sniprintf(buffer, sizeof(buffer), "Data: %d\n", msg.data[i]);
+            snprintf(buffer, sizeof(buffer), "Data: %d\n", msg.data[i]);
             UART_SendString(buffer);
         }
     }
@@ -169,7 +169,7 @@ void onMessageReceivedCAN1()
         UART_SendString(buffer);
         for (uint8_t i = 0; i < msg.length; i++)
         {
-            sniprintf(buffer, sizeof(buffer), "Data: %d\n", msg.data[i]);
+            snprintf(buffer, sizeof(buffer), "Data: %d\n", msg.data[i]);
             UART_SendString(buffer);
         }
     }
